@@ -1,5 +1,6 @@
 use pixels;
 use std::fs;
+use clap::{ArgAction, Parser};
 // use std::thread;
 // use std::sync::{Mutex, Arc};
 use rand::Rng;
@@ -8,6 +9,18 @@ use winit::window::WindowAttributes;
 use winit::dpi::{PhysicalSize};
 use winit::event::KeyEvent;
 use winit::keyboard::{PhysicalKey, KeyCode};
+
+
+#[derive(Parser)]
+struct Cli {
+    path: String,
+    #[arg(short, long, default_value = "false", action=ArgAction::SetTrue)]
+    MOVE_VAL_8XY6E: bool,
+    #[arg(short, long, default_value = "false", action=ArgAction::SetTrue)]
+    BXNN: bool,
+    #[arg(short, long, default_value = "true", action=ArgAction::SetFalse)]
+    INCREMENT_I_ON_LOAD: bool,
+}
 
 struct State {
     memory: [u8; 4096],
@@ -28,6 +41,12 @@ struct State {
 
 
 fn main() {
+    let args = Cli::parse();
+    let path = args.path;
+    run(path, args.MOVE_VAL_8XY6E, args.BXNN, args.INCREMENT_I_ON_LOAD);
+}
+
+fn run(path: String, move_val_8xy6e: bool, bxnn: bool, increment_i_on_load: bool) {
 
     let mut state = State {
         memory: [0u8; 4096],
@@ -36,9 +55,9 @@ fn main() {
         stack: Vec::new(),
         registers: [0u8; 16],
         I: 0,
-        MOVE_VAL_8XY6E: false,
-        BXNN: false,
-        INCREMENT_I_ON_LOAD: true,
+        MOVE_VAL_8XY6E: move_val_8xy6e,
+        BXNN: bxnn,
+        INCREMENT_I_ON_LOAD: increment_i_on_load,
         key: 0,
         key_pressed_this_frame: 0,
         key_released_this_frame: 0,
@@ -70,7 +89,7 @@ fn main() {
         state.memory[i + 0x50] = font[i];
     }
 
-    let code = fs::read("./Astro Dodge.ch8").expect("Failed to read file");
+    let code = fs::read(path).expect("Failed to read file");
     for i in 0..code.len() {
         state.memory[i + 0x200] = code[i];
     }
@@ -91,7 +110,7 @@ fn main() {
     .build()
     .unwrap();
     event_loop.run( |event, elwt| {
-        elwt.set_control_flow(winit::event_loop::ControlFlow::wait_duration(std::time::Duration::from_millis(16)));
+        elwt.set_control_flow(winit::event_loop::ControlFlow::wait_duration(std::time::Duration::from_millis(1)));
         state.delay_timer = state.delay_timer.saturating_sub(1);
         state.sound_timer = state.sound_timer.saturating_sub(1);
         if state.sound_timer > 0 {
@@ -370,11 +389,11 @@ fn main_loop(state: &mut State, window: &winit::window::Window) {
                         state.I += x as u16 + 1;
                     }
                 }
-                _ => {}
+                _ => {panic!("Unknown instruction: {:#04X}", instruction);}
             }
         }
 
-        _ => {}
+        _ => {panic!("Unknown instruction: {:#04X}", instruction);}
     }
     // let mut input: String = String::new();
     // std::io::stdin().read_line(&mut input).expect("Failed to read line");
