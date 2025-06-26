@@ -1,8 +1,8 @@
 use pixels;
-use std::fs;
+use std::{fs, time};
 use clap::{ArgAction, Parser};
-// use std::thread;
-// use std::sync::{Mutex, Arc};
+use std::thread;
+use std::sync:: {Arc, Mutex, MutexGuard};
 use rand::Rng;
 use winit::event_loop::{EventLoop};
 use winit::window::WindowAttributes;
@@ -93,29 +93,71 @@ fn run(path: String, move_val_8xy6e: bool, bxnn: bool, increment_i_on_load: bool
     for i in 0..code.len() {
         state.memory[i + 0x200] = code[i];
     }
+    let state = Arc::new(Mutex::new(state));
+    let state_p = Arc::clone(&state);
+
+    let state_p2 = Arc::clone(&state);
+    thread::spawn(move || {
+        loop {
+            let mut state = state_p2.lock().unwrap();
+            for _ in 0..10 {
+                main_loop(&mut state);
+            }
+            drop(state);
+            thread::sleep(std::time::Duration::from_millis(16));
+        }
+    });
 
     let event_loop = EventLoop::new().unwrap();
     let window_attributes = WindowAttributes::default()
     .with_title("CHIP-8 Emulator")
     .with_inner_size(PhysicalSize::new(64 * 20, 32 * 20))
     .with_resizable(false);
-    let window = event_loop.create_window(window_attributes).unwrap();
+    let window = Box::new(event_loop.create_window(window_attributes).unwrap());
 
     
     let mut display = pixels::PixelsBuilder::new(
         64,
         32,
-        pixels::SurfaceTexture::new(1280, 640, &window),
+        pixels::SurfaceTexture::new(1280, 640, window),
     )
     .build()
     .unwrap();
-    event_loop.run( |event, elwt| {
-        elwt.set_control_flow(winit::event_loop::ControlFlow::wait_duration(std::time::Duration::from_millis(1)));
-        state.delay_timer = state.delay_timer.saturating_sub(1);
-        state.sound_timer = state.sound_timer.saturating_sub(1);
-        if state.sound_timer > 0 {
-            // Play sound
+
+    thread::spawn(move || {
+        loop {
+            let mut state = state.lock().unwrap();
+            state.delay_timer = state.delay_timer.saturating_sub(1);
+            state.sound_timer = state.sound_timer.saturating_sub(1);
+            if state.sound_timer > 0 {
+                // Play sound
+            }
+
+            let frame = state.frame_buffer.clone();
+            drop(state);
+
+            for i in 0..(64 * 32) {
+                if frame[i / 8] & (1 << 7 - (i % 8)) == 0 {
+                    display.frame_mut()[i * 4 + 0] = 0x00;
+                    display.frame_mut()[i * 4 + 1] = 0x00;
+                    display.frame_mut()[i * 4 + 2] = 0x00;
+                    display.frame_mut()[i * 4 + 3] = 0xFF; 
+                }
+                else {
+                    display.frame_mut()[i * 4 + 0] = 0xFF; 
+                    display.frame_mut()[i * 4 + 1] = 0xFF;
+                    display.frame_mut()[i * 4 + 2] = 0xFF; 
+                    display.frame_mut()[i * 4 + 3] = 0xFF;
+                }
+            }
+            
+            display.render().unwrap();
+            thread::sleep(time::Duration::from_millis(16));
         }
+    });
+
+    event_loop.run( |event, elwt| {
+        elwt.set_control_flow(winit::event_loop::ControlFlow::wait_duration(std::time::Duration::from_millis(16)));
 
         match event {
             winit::event::Event::WindowEvent { event, .. } => {
@@ -125,6 +167,8 @@ fn run(path: String, move_val_8xy6e: bool, bxnn: bool, increment_i_on_load: bool
                         return;
                     }
                     winit::event::WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+                        let state = &mut *state_p.lock().unwrap();
+
                         let i = get_input(event);
                         state.key_pressed_this_frame = i.0;
                         state.key_released_this_frame = i.1;
@@ -146,31 +190,13 @@ fn run(path: String, move_val_8xy6e: bool, bxnn: bool, increment_i_on_load: bool
             _ => {}
         }
         
-        for _ in 0..10 {
-            main_loop(&mut state, &window);
-        }
-
-        for i in 0..(64 * 32) {
-            if state.frame_buffer[i / 8] & (1 << 7 - (i % 8)) == 0 {
-                display.frame_mut()[i * 4 + 0] = 0x00;
-                display.frame_mut()[i * 4 + 1] = 0x00;
-                display.frame_mut()[i * 4 + 2] = 0x00;
-                display.frame_mut()[i * 4 + 3] = 0xFF; 
-            }
-            else {
-                display.frame_mut()[i * 4 + 0] = 0xFF; 
-                display.frame_mut()[i * 4 + 1] = 0xFF;
-                display.frame_mut()[i * 4 + 2] = 0xFF; 
-                display.frame_mut()[i * 4 + 3] = 0xFF;
-            }
-        }
-        
-        display.render().unwrap();
-
+        // for _ in 0..10 {
+        //     main_loop(&mut state);
+        // }
     }).expect("Failed to run event loop");
 }
 
-fn main_loop(state: &mut State, window: &winit::window::Window) {
+fn main_loop(state: &mut State) {
     // for i in 0..(8 * 32) {
     //     if frame_buffer[i] == 255 {
     //         frame_buffer[i] = 0;
@@ -178,6 +204,7 @@ fn main_loop(state: &mut State, window: &winit::window::Window) {
     //         frame_buffer[i] += 1;
     //     };
     // }
+    let state = &mut *state;
     let instruction: u16 = ((state.memory[state.pc as usize] as u16) << 8) | (state.memory[(state.pc + 1) as usize] as u16);
     state.pc += 2;
     // println!("Executing instruction: {:#04X}", instruction);
