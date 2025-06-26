@@ -7,7 +7,7 @@ CHIP-8 is an interpreted programming language/virtual machine that was created i
 
 # How to use?
 ```bash
-./chip-8.exe /path/to/rom
+chip-8.exe /path/to/rom
 ```
 ### Where can i get the ROMs?
 Download some .ch8 files from [here.](https://github.com/kripod/chip8-roms/tree/master/games)
