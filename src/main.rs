@@ -1,4 +1,5 @@
 use pixels;
+use std::time::Duration;
 use std::{fs, time};
 use clap::{ArgAction, Parser};
 use std::thread;
@@ -9,6 +10,9 @@ use winit::window::WindowAttributes;
 use winit::dpi::{PhysicalSize};
 use winit::event::KeyEvent;
 use winit::keyboard::{PhysicalKey, KeyCode};
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::f32::consts::PI;
 
 
 #[derive(Parser)]
@@ -124,30 +128,66 @@ fn run(path: String, move_val_8xy6e: bool, bxnn: bool, increment_i_on_load: bool
     .build()
     .unwrap();
 
+    let host = cpal::default_host();
+    let device = host.default_output_device().unwrap();
+    let config = device.default_output_config().unwrap().config();
+
+    let sample_rate = config.sample_rate.0 as f32;
+    let channels = config.channels as usize;
+
+    // Produce a sinusoid of maximum amplitude.
+    let mut sample_clock = 0f32;
+    let mut next_value = move || {
+        sample_clock = (sample_clock + 1.0) % sample_rate;
+        (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
+    };
+
+    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+
+    let stream = device.build_output_stream(
+        &config,
+        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            for frame in data.chunks_mut(channels) {
+                let value = next_value();
+                for sample in frame.iter_mut() {
+                    *sample = value;
+                }
+            }
+            // write_data(data, channels, &mut next_value)
+        },
+        err_fn,
+        Some(Duration::from_millis(500)),
+    ).unwrap();
+
+
     thread::spawn(move || {
         loop {
             let mut state = state.lock().unwrap();
             state.delay_timer = state.delay_timer.saturating_sub(1);
-            state.sound_timer = state.sound_timer.saturating_sub(1);
             if state.sound_timer > 0 {
-                // Play sound
+                stream.play().unwrap();
             }
+            else {
+                stream.pause().unwrap();
+            }
+            state.sound_timer = state.sound_timer.saturating_sub(1);
 
             let frame = state.frame_buffer.clone();
             drop(state);
 
             for i in 0..(64 * 32) {
+                let mut disp = display.frame_mut();
                 if frame[i / 8] & (1 << 7 - (i % 8)) == 0 {
-                    display.frame_mut()[i * 4 + 0] = 0x00;
-                    display.frame_mut()[i * 4 + 1] = 0x00;
-                    display.frame_mut()[i * 4 + 2] = 0x00;
-                    display.frame_mut()[i * 4 + 3] = 0xFF; 
+                    disp[i * 4 + 0] = 0x00;
+                    disp[i * 4 + 1] = 0x00;
+                    disp[i * 4 + 2] = 0x00;
+                    disp[i * 4 + 3] = 0xFF; 
                 }
                 else {
-                    display.frame_mut()[i * 4 + 0] = 0xFF; 
-                    display.frame_mut()[i * 4 + 1] = 0xFF;
-                    display.frame_mut()[i * 4 + 2] = 0xFF; 
-                    display.frame_mut()[i * 4 + 3] = 0xFF;
+                    disp[i * 4 + 0] = 0xFF; 
+                    disp[i * 4 + 1] = 0xFF;
+                    disp[i * 4 + 2] = 0xFF; 
+                    disp[i * 4 + 3] = 0xFF;
                 }
             }
             
@@ -157,7 +197,7 @@ fn run(path: String, move_val_8xy6e: bool, bxnn: bool, increment_i_on_load: bool
     });
 
     event_loop.run( |event, elwt| {
-        elwt.set_control_flow(winit::event_loop::ControlFlow::wait_duration(std::time::Duration::from_millis(16)));
+        // elwt.set_control_flow(winit::event_loop::ControlFlow::wait_duration(std::time::Duration::from_millis(16)));
 
         match event {
             winit::event::Event::WindowEvent { event, .. } => {

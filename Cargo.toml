@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
+cpal = "0.16.0"
 pixels = "0.15.0"
 rand = "0.9.1"
 winit = {version="0.30.11", features=["rwh_05"]}
